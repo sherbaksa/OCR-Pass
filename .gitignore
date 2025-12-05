@@ -75,3 +75,6 @@ temp/
 
 # MinIO local data (if using Docker volume)
 minio_data/
+
+# Application logs
+logs/

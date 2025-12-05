@@ -1,0 +1,52 @@
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from typing import Optional, List
+
+
+class Settings(BaseSettings):
+    """
+    Настройки приложения, загружаемые из переменных окружения
+    """
+    
+    # Основные настройки приложения
+    app_name: str = Field(default="Passport OCR Service", description="Название приложения")
+    debug: bool = Field(default=False, description="Режим отладки")
+    api_v1_prefix: str = Field(default="/api/v1", description="Префикс API v1")
+    
+    # База данных PostgreSQL
+    database_url: str = Field(
+        default="postgresql://user:password@localhost:5432/passport_db",
+        description="URL подключения к PostgreSQL"
+    )
+    
+    # MinIO (S3-совместимое хранилище)
+    minio_endpoint: str = Field(default="localhost:9000", description="MinIO endpoint")
+    minio_access_key: str = Field(default="minioadmin", description="MinIO access key")
+    minio_secret_key: str = Field(default="minioadmin", description="MinIO secret key")
+    minio_bucket_name: str = Field(default="passport-documents", description="MinIO bucket name")
+    minio_secure: bool = Field(default=False, description="Использовать HTTPS для MinIO")
+    
+    # Внешние API
+    google_vision_api_key: Optional[str] = Field(default=None, description="Google Vision API ключ")
+    
+    # Настройки безопасности
+    secret_key: str = Field(default="change-me-in-production", description="Секретный ключ для JWT")
+    algorithm: str = Field(default="HS256", description="Алгоритм шифрования JWT")
+    access_token_expire_minutes: int = Field(default=30, description="Время жизни токена в минутах")
+    
+    # Настройки загрузки файлов
+    max_upload_size_mb: int = Field(default=10, description="Максимальный размер загружаемого файла в МБ")
+    allowed_extensions: List[str] = Field(
+        default=["jpg", "jpeg", "png", "pdf"],
+        description="Разрешенные расширения файлов"
+    )
+    min_image_resolution: int = Field(default=1000, description="Минимальное разрешение изображения (px)")
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
+
+
+# Создаем глобальный экземпляр настроек
+settings = Settings()

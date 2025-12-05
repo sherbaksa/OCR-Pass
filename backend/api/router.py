@@ -1,0 +1,44 @@
+from fastapi import APIRouter
+from datetime import datetime
+from backend.core.logger import log_info
+
+# Создаем роутер для API v1
+router = APIRouter()
+
+
+@router.get("/ping")
+async def ping():
+    """
+    Endpoint для проверки работоспособности API
+    
+    Returns:
+        dict: Статус сервиса и текущее время
+    """
+    log_info("Ping endpoint called")
+    
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "Passport OCR Service"
+    }
+
+
+@router.get("/health")
+async def health_check():
+    """
+    Health check endpoint для мониторинга
+    
+    Returns:
+        dict: Детальная информация о состоянии сервиса
+    """
+    log_info("Health check endpoint called")
+    
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": {
+            "api": "ok",
+            "database": "not_implemented",  # TODO: добавить проверку БД
+            "storage": "not_implemented"     # TODO: добавить проверку MinIO
+        }
+    }
