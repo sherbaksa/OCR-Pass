@@ -17,3 +17,4 @@ httpx==0.25.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-magic==0.4.27
+asyncpg==0.29.0
