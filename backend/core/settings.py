@@ -27,8 +27,13 @@ class Settings(BaseSettings):
     minio_secure: bool = Field(default=False, description="Использовать HTTPS для MinIO")
     
     # Внешние API
-    google_vision_api_key: Optional[str] = Field(default=None, description="Google Vision API ключ")
-    
+# Google Vision API настройки
+    google_vision_enabled: bool = Field(default=False, description="Включить Google Vision API")
+    google_vision_mock_mode: bool = Field(default=False, description="Использовать mock-режим (без реальных API вызовов)")
+    google_application_credentials: Optional[str] = Field(
+        default=None, 
+        description="Путь к JSON-файлу с credentials для Google Vision"
+    )
 # PaddleOCR настройки
     paddleocr_use_gpu: bool = Field(default=False, description="Использовать GPU для PaddleOCR")
     paddleocr_lang: str = Field(default="ru", description="Язык модели PaddleOCR")
