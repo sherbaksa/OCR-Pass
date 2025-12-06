@@ -14,8 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     poppler-utils \
     libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
-
 # Рабочая директория
 WORKDIR /app
 
@@ -25,6 +29,7 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 # Копируем код приложения
 COPY backend /app/backend
+COPY scripts /app/scripts
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app

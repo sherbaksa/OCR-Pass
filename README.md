@@ -7,6 +7,7 @@
 - **База данных:** PostgreSQL
 - **Хранилище:** MinIO (S3-совместимое)
 - **OCR:** PaddleOCR / Google Vision API
+- **Предобработка:** OpenCV, scikit-image, imutils
 - **Контейнеризация:** Docker, Docker Compose
 - **Фронтенд:** (планируется) React/Vue.js для загрузки и просмотра
 
@@ -52,14 +53,29 @@ MinIO Console: http://localhost:9001
 
 MinIO API: http://localhost:9000
 
-API Endpoints (основные)
-GET / - Проверка работоспособности
+## API Endpoints
 
-GET /health - Health check
+### Основные
+- `GET /` - Информация о сервисе
+- `GET /api/v1/ping` - Проверка работоспособности
+- `GET /api/v1/health` - Health check
 
-POST /api/v1/upload - Загрузка изображения паспорта (будущее)
+### Загрузка документов
+- `POST /api/v1/upload` - Загрузка файлов паспортов (JPG, PNG, PDF)
+  - Параметры: `file` (multipart/form-data), `page_type` (main/registration)
+  - Валидация: размер ≤10MB, разрешение ≥1000px
 
-GET /api/v1/documents/{id} - Получение информации о документе (будущее)
+### Предобработка изображений
+Модуль `preprocessing_service` предоставляет:
+- Выравнивание наклона (deskew)
+- Шумоподавление (3 уровня)
+- Нормализация контраста (CLAHE, histogram equalization, adaptive)
+- Усиление резкости
+- Бинаризация (Otsu, adaptive, local)
+- Удаление рамок
+- Автоматическое масштабирование для OCR
+
+Подробнее: [docs/preprocessing_guide.md](docs/preprocessing_guide.md)
 
 Разработка
 Локальная разработка без Docker
@@ -69,9 +85,19 @@ python -m venv venv
 source venv/bin/activate  # На Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
-Проверка окружения
-bash
-python scripts/check_env.py
+
+### Тестирование модулей
+
+**Тест хранилища (MinIO):**
+```bash
+docker-compose exec backend python scripts/test_storage.py
+```
+
+**Тест предобработки изображений:**
+```bash
+docker-compose exec backend python scripts/test_preprocessing.py
+```
+
 Схема базы данных
 См. infra/db_schema.md
 
