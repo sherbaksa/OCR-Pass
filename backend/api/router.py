@@ -1,21 +1,23 @@
 from fastapi import APIRouter
 from datetime import datetime
 from backend.core.logger import log_info
+from backend.api.upload import router as upload_router
 
 # Создаем роутер для API v1
 router = APIRouter()
+
+# Подключаем upload роутер
+router.include_router(upload_router)
 
 
 @router.get("/ping")
 async def ping():
     """
     Endpoint для проверки работоспособности API
-    
     Returns:
         dict: Статус сервиса и текущее время
     """
     log_info("Ping endpoint called")
-    
     return {
         "status": "ok",
         "timestamp": datetime.utcnow().isoformat(),
@@ -27,12 +29,10 @@ async def ping():
 async def health_check():
     """
     Health check endpoint для мониторинга
-    
     Returns:
         dict: Детальная информация о состоянии сервиса
     """
     log_info("Health check endpoint called")
-    
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
