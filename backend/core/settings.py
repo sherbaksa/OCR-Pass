@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     # Внешние API
     google_vision_api_key: Optional[str] = Field(default=None, description="Google Vision API ключ")
     
+# PaddleOCR настройки
+    paddleocr_use_gpu: bool = Field(default=False, description="Использовать GPU для PaddleOCR")
+    paddleocr_lang: str = Field(default="ru", description="Язык модели PaddleOCR")
+    paddleocr_det_model_dir: Optional[str] = Field(default=None, description="Путь к модели детекции")
+    paddleocr_rec_model_dir: Optional[str] = Field(default=None, description="Путь к модели распознавания")
+    paddleocr_cls_model_dir: Optional[str] = Field(default=None, description="Путь к модели классификации")
+
     # Настройки безопасности
     secret_key: str = Field(default="change-me-in-production", description="Секретный ключ для JWT")
     algorithm: str = Field(default="HS256", description="Алгоритм шифрования JWT")
