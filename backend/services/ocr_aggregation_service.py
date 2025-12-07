@@ -15,7 +15,7 @@ from backend.services.field_extraction_service import field_extraction_service
 from backend.services.field_scoring_service import field_scoring_service
 from backend.core.logger import logger
 from backend.core.settings import settings
-
+from backend.services.preprocessing_service import preprocessing_service
 
 class OCRAggregationService:
     """
@@ -47,14 +47,18 @@ class OCRAggregationService:
         except Exception as e:
             logger.error(f"Ошибка инициализации PaddleOCR: {e}")
         
-        # Инициализация Google Vision (опционально)
+        # Google Vision (опционально, но не в mock режиме)
         if settings.google_vision_enabled:
             try:
                 google_vision_provider.initialize()
-                self.providers.append(google_vision_provider)
-                logger.info("Google Vision provider добавлен")
+                # НЕ добавляем mock-провайдер в список для реальной обработки
+                if not settings.google_vision_mock_mode:
+                    self.providers.append(google_vision_provider)
+                    logger.info("Google Vision provider добавлен")
+                else:
+                    logger.info("Google Vision в MOCK-режиме - пропускаем для тестирования")
             except Exception as e:
-                logger.warning(f"Google Vision provider недоступен: {e}")
+                logger.error(f"Ошибка инициализации Google Vision: {e}")
         
         if not self.providers:
             raise RuntimeError("Ни один OCR провайдер не инициализирован")
@@ -87,7 +91,24 @@ class OCRAggregationService:
             raise ValueError("OCR Aggregation Service не инициализирован. Вызовите initialize()")
         
         start_time = time.time()
-        
+
+# Препроцессинг изображения для улучшения качества
+        image_for_ocr = image_data  # По умолчанию используем оригинал
+        try:
+            logger.info("Применение препроцессинга к изображению...")
+            preprocessed = preprocessing_service.preprocess_image(
+                image_data,
+                apply_deskew=True,
+                apply_denoise=True,
+                apply_contrast=True,
+                apply_sharpening=True,
+                apply_binarization=False
+            )
+            image_for_ocr = preprocessed
+            logger.info("Препроцессинг применён успешно")
+        except Exception as e:
+            logger.warning(f"Ошибка препроцессинга: {e}. Используем оригинальное изображение")
+
         logger.info(
             f"Начало обработки изображения. "
             f"Провайдеров: {len(self.providers)}, "
@@ -96,7 +117,7 @@ class OCRAggregationService:
         
         # Шаг 1: Распознавание через OCR провайдеры
         ocr_results = self._recognize_with_providers(
-            image_data=image_data,
+            image_data=image_for_ocr,
             language=language,
             use_all_providers=use_all_providers
         )
@@ -131,40 +152,59 @@ class OCRAggregationService:
         use_all_providers: bool
     ) -> List[OCRResult]:
         """
-        Выполнить распознавание через OCR провайдеры.
-        
-        Args:
-            image_data: Данные изображения
-            language: Язык распознавания
-            use_all_providers: Использовать все или только первый
-            
-        Returns:
-            List[OCRResult]: Результаты от провайдеров
+        Выполнить распознавание через OCR провайдеры со всеми ориентациями.
         """
+        from PIL import Image
+        import io
+        
         ocr_results = []
         
         for provider in self.providers:
             try:
-                logger.info(f"Запуск распознавания через {provider.provider_name}...")
+                logger.info(f"Запуск распознавания через {provider.provider_name} в 4 ориентациях...")
                 
-                result = provider.recognize(image_data, language)
-                ocr_results.append(result)
+                # Пробуем все 4 ориентации
+                all_texts = []
+                for angle in [0, 90, 180, 270]:
+                    try:
+                        # Поворачиваем изображение
+                        img = Image.open(io.BytesIO(image_data))
+                        if angle > 0:
+                            img = img.rotate(-angle, expand=True)
+                        
+                        # Конвертируем обратно в bytes
+                        buffer = io.BytesIO()
+                        img.save(buffer, format='JPEG', quality=95)
+                        rotated_data = buffer.getvalue()
+                        
+                        # Распознаём
+                        result = provider.recognize(rotated_data, language)
+                        all_texts.append(result.full_text)
+                        
+                        logger.info(f"  Угол {angle}°: {len(result.full_text)} символов, conf {result.average_confidence:.2%}")
+                        
+                    except Exception as e:
+                        logger.warning(f"  Ошибка при угле {angle}°: {e}")
+                        continue
                 
-                logger.info(
-                    f"{provider.provider_name}: "
-                    f"текст {len(result.full_text)} символов, "
-                    f"confidence {result.average_confidence:.2%}"
-                )
+                # Объединяем весь текст из всех ориентаций
+                combined_text = " ".join(all_texts)
                 
-                # Если не нужны все провайдеры, останавливаемся на первом успешном
+                # Создаём финальный результат с объединённым текстом
+                # Берём первый успешный результат как базу
+                final_result = provider.recognize(image_data, language)
+                final_result.full_text = combined_text
+                
+                ocr_results.append(final_result)
+                logger.info(f"{provider.provider_name}: ИТОГО {len(combined_text)} символов из 4 ориентаций")
+                
                 if not use_all_providers:
                     break
-                
+                    
             except Exception as e:
                 logger.error(f"Ошибка в провайдере {provider.provider_name}: {e}")
-                # Продолжаем с другими провайдерами
                 continue
-        
+                
         return ocr_results
     
     def _extract_fields_from_results(
