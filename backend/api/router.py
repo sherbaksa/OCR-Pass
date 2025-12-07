@@ -2,12 +2,16 @@ from fastapi import APIRouter
 from datetime import datetime
 from backend.core.logger import log_info
 from backend.api.upload import router as upload_router
+from backend.api.ocr import router as ocr_router
 
 # Создаем роутер для API v1
 router = APIRouter()
 
 # Подключаем upload роутер
 router.include_router(upload_router)
+
+# Подключаем OCR роутер
+router.include_router(ocr_router)
 
 
 @router.get("/ping")
@@ -38,7 +42,7 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "checks": {
             "api": "ok",
-            "database": "not_implemented",  # TODO: добавить проверку БД
-            "storage": "not_implemented"     # TODO: добавить проверку MinIO
+            "database": "not_implemented",
+            "storage": "not_implemented"
         }
     }
