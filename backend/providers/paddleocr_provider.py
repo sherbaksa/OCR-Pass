@@ -111,6 +111,33 @@ class PaddleOCRProvider(BaseOCRProvider):
             
             # Выполнение OCR
             ocr_result = self.ocr_engine.ocr(image_array, cls=True)
+            print(f"\n{'='*80}")
+            print(f"PADDLEOCR DEBUG: ocr_result type = {type(ocr_result)}")
+            print(f"PADDLEOCR DEBUG: ocr_result length = {len(ocr_result) if ocr_result else 0}")
+            if ocr_result and len(ocr_result) > 0:
+                print(f"PADDLEOCR DEBUG: ocr_result[0] length = {len(ocr_result[0])}")
+                for idx, line in enumerate(ocr_result[0]):
+                    print(f"  Line {idx}: {line[1][0]} (conf: {line[1][1]:.3f})")
+            print(f"{'='*80}\n")
+# ОТЛАДКА: Логируем весь распознанный текст
+            logger.info(f"=== PaddleOCR RAW RESULT START === Type: {type(ocr_result)}, Length: {len(ocr_result) if ocr_result else 0}")
+            if ocr_result:
+                logger.info(f"ocr_result[0] type: {type(ocr_result[0])}, Length: {len(ocr_result[0]) if ocr_result[0] else 0}")
+                if ocr_result[0]:
+                    for idx, line_data in enumerate(ocr_result[0]):
+                        try:
+                            text = line_data[1][0]
+                            confidence = line_data[1][1]
+                            logger.info(f"Line {idx}: '{text}' | Conf: {confidence:.3f}")
+                        except Exception as e:
+                            logger.error(f"Error parsing line {idx}: {e}, Data: {line_data}")
+                else:
+                    logger.warning("ocr_result[0] is empty")
+            else:
+                logger.warning("ocr_result is None or empty")
+            logger.info("=== PaddleOCR RAW RESULT END ===")
+
+
             
             # Обработка результатов
             if not ocr_result or not ocr_result[0]:

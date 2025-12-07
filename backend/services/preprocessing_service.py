@@ -21,7 +21,7 @@ class PreprocessingService:
     # Константы для обработки
     DEFAULT_DPI = 300
     MIN_CONTOUR_AREA = 1000
-    ROTATION_ANGLE_THRESHOLD = 45  # Максимальный угол поворота для коррекции
+    ROTATION_ANGLE_THRESHOLD = 95  # Максимальный угол поворота для коррекции
 
     def __init__(self):
         """Инициализация сервиса предобработки"""
