@@ -8,12 +8,23 @@ services:
       dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./scripts:/app/scripts
+      - ./logs:/app/logs
+      - ./secrets:/app/secrets
+      - ~/.paddleocr:/root/.paddleocr  # Монтируем модели PaddleOCR
     environment:
       - DATABASE_URL=postgresql://user:password@postgres:5432/passport_db
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
       - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - GOOGLE_VISION_ENABLED=${GOOGLE_VISION_ENABLED}
+      - GOOGLE_VISION_MOCK_MODE=${GOOGLE_VISION_MOCK_MODE}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
+      - PADDLEOCR_USE_GPU=${PADDLEOCR_USE_GPU}
+      - PADDLEOCR_LANG=${PADDLEOCR_LANG}
     depends_on:
       postgres:
         condition: service_healthy

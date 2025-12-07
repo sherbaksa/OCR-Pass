@@ -1,0 +1,228 @@
+"""
+OCR Aggregation Service
+Координирует работу всех OCR провайдеров и агрегирует результаты.
+Использует Field Extraction и Field Scoring для получения лучших значений.
+"""
+
+import time
+from typing import List, Union, Optional
+import numpy as np
+
+from backend.providers import paddleocr_provider, google_vision_provider
+from backend.schemas.ocr import OCRResult
+from backend.schemas.passport_fields import PassportFieldsResult, ProviderExtraction
+from backend.services.field_extraction_service import field_extraction_service
+from backend.services.field_scoring_service import field_scoring_service
+from backend.core.logger import logger
+from backend.core.settings import settings
+
+
+class OCRAggregationService:
+    """
+    Сервис агрегации OCR результатов от нескольких провайдеров.
+    Выполняет распознавание, извлечение полей и голосование.
+    """
+    
+    def __init__(self):
+        """Инициализация сервиса"""
+        self.providers = []
+        self._initialized = False
+        logger.info("OCR Aggregation Service created")
+    
+    def initialize(self) -> None:
+        """
+        Инициализация всех доступных OCR провайдеров.
+        """
+        if self._initialized:
+            logger.info("OCR Aggregation Service уже инициализирован")
+            return
+        
+        logger.info("Инициализация OCR Aggregation Service...")
+        
+        # Инициализация PaddleOCR (всегда доступен)
+        try:
+            paddleocr_provider.initialize()
+            self.providers.append(paddleocr_provider)
+            logger.info("PaddleOCR provider добавлен")
+        except Exception as e:
+            logger.error(f"Ошибка инициализации PaddleOCR: {e}")
+        
+        # Инициализация Google Vision (опционально)
+        if settings.google_vision_enabled:
+            try:
+                google_vision_provider.initialize()
+                self.providers.append(google_vision_provider)
+                logger.info("Google Vision provider добавлен")
+            except Exception as e:
+                logger.warning(f"Google Vision provider недоступен: {e}")
+        
+        if not self.providers:
+            raise RuntimeError("Ни один OCR провайдер не инициализирован")
+        
+        self._initialized = True
+        logger.info(f"OCR Aggregation Service инициализирован. Провайдеров: {len(self.providers)}")
+    
+    def process_image(
+        self,
+        image_data: Union[bytes, np.ndarray],
+        language: str = "ru",
+        use_all_providers: bool = True
+    ) -> PassportFieldsResult:
+        """
+        Обработать изображение паспорта через все провайдеры.
+        
+        Args:
+            image_data: Изображение в виде bytes или numpy array
+            language: Язык распознавания
+            use_all_providers: Использовать все провайдеры или только первый доступный
+            
+        Returns:
+            PassportFieldsResult: Результат с извлечёнными и проголосованными полями
+            
+        Raises:
+            ValueError: Если сервис не инициализирован
+            RuntimeError: Если все провайдеры вернули ошибку
+        """
+        if not self._initialized:
+            raise ValueError("OCR Aggregation Service не инициализирован. Вызовите initialize()")
+        
+        start_time = time.time()
+        
+        logger.info(
+            f"Начало обработки изображения. "
+            f"Провайдеров: {len(self.providers)}, "
+            f"Режим: {'все' if use_all_providers else 'первый доступный'}"
+        )
+        
+        # Шаг 1: Распознавание через OCR провайдеры
+        ocr_results = self._recognize_with_providers(
+            image_data=image_data,
+            language=language,
+            use_all_providers=use_all_providers
+        )
+        
+        if not ocr_results:
+            raise RuntimeError("Все OCR провайдеры вернули ошибку")
+        
+        logger.info(f"Получено {len(ocr_results)} OCR результатов")
+        
+        # Шаг 2: Извлечение полей из каждого OCR результата
+        provider_extractions = self._extract_fields_from_results(ocr_results)
+        
+        logger.info(f"Извлечено полей от {len(provider_extractions)} провайдеров")
+        
+        # Шаг 3: Скоринг и голосование
+        final_result = field_scoring_service.score_and_vote(provider_extractions)
+        
+        total_time_ms = (time.time() - start_time) * 1000
+        
+        logger.info(
+            f"Обработка завершена за {total_time_ms:.2f}ms. "
+            f"Извлечено полей: {len(final_result.final_values)}, "
+            f"Средняя уверенность: {final_result.average_confidence:.2%}"
+        )
+        
+        return final_result
+    
+    def _recognize_with_providers(
+        self,
+        image_data: Union[bytes, np.ndarray],
+        language: str,
+        use_all_providers: bool
+    ) -> List[OCRResult]:
+        """
+        Выполнить распознавание через OCR провайдеры.
+        
+        Args:
+            image_data: Данные изображения
+            language: Язык распознавания
+            use_all_providers: Использовать все или только первый
+            
+        Returns:
+            List[OCRResult]: Результаты от провайдеров
+        """
+        ocr_results = []
+        
+        for provider in self.providers:
+            try:
+                logger.info(f"Запуск распознавания через {provider.provider_name}...")
+                
+                result = provider.recognize(image_data, language)
+                ocr_results.append(result)
+                
+                logger.info(
+                    f"{provider.provider_name}: "
+                    f"текст {len(result.full_text)} символов, "
+                    f"confidence {result.average_confidence:.2%}"
+                )
+                
+                # Если не нужны все провайдеры, останавливаемся на первом успешном
+                if not use_all_providers:
+                    break
+                
+            except Exception as e:
+                logger.error(f"Ошибка в провайдере {provider.provider_name}: {e}")
+                # Продолжаем с другими провайдерами
+                continue
+        
+        return ocr_results
+    
+    def _extract_fields_from_results(
+        self,
+        ocr_results: List[OCRResult]
+    ) -> List[ProviderExtraction]:
+        """
+        Извлечь поля из всех OCR результатов.
+        
+        Args:
+            ocr_results: Результаты от OCR провайдеров
+            
+        Returns:
+            List[ProviderExtraction]: Извлечённые поля от каждого провайдера
+        """
+        provider_extractions = []
+        
+        for ocr_result in ocr_results:
+            try:
+                logger.info(f"Извлечение полей из результата {ocr_result.metadata.provider}...")
+                
+                extraction = field_extraction_service.extract_fields(ocr_result)
+                provider_extractions.append(extraction)
+                
+                logger.info(
+                    f"{ocr_result.metadata.provider}: "
+                    f"извлечено {extraction.total_fields_found} полей"
+                )
+                
+            except Exception as e:
+                logger.error(
+                    f"Ошибка извлечения полей из {ocr_result.metadata.provider}: {e}"
+                )
+                # Продолжаем с другими результатами
+                continue
+        
+        return provider_extractions
+    
+    def get_available_providers(self) -> List[str]:
+        """
+        Получить список доступных провайдеров.
+        
+        Returns:
+            List[str]: Названия провайдеров
+        """
+        if not self._initialized:
+            return []
+        
+        return [provider.provider_name for provider in self.providers]
+    
+    def is_initialized(self) -> bool:
+        """Проверка инициализации сервиса"""
+        return self._initialized
+    
+    def get_provider_count(self) -> int:
+        """Получить количество доступных провайдеров"""
+        return len(self.providers)
+
+
+# Singleton instance
+ocr_aggregation_service = OCRAggregationService()

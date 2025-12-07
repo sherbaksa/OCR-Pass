@@ -78,3 +78,10 @@ minio_data/
 
 # Application logs
 logs/
+# Secrets and credentials
+secrets/
+*.json
+!package.json
+!tsconfig.json
+*.key
+*.pem
