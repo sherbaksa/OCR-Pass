@@ -76,7 +76,7 @@ async def debug_preprocess(
         
         # Применение препроцессинга (используем скорректированное изображение)
         preprocessed_bytes = preprocessing_service.preprocess_image(
-            corrected_image_data,  # ← Используем исправленное
+            corrected_image_data,
             apply_deskew=apply_deskew,
             apply_denoise=apply_denoise,
             apply_contrast=apply_contrast,
@@ -109,8 +109,8 @@ async def debug_preprocess(
             success=True,
             original_size=original_size,
             preprocessed_size=preprocessed_size,
-            preprocessed_image_path=output_path,
-            download_url=f"computer://{output_path}",
+            preprocessed_image_path=filename,
+            download_url=f"/api/v1/debug/download/{filename}",
             parameters_used={
                 "deskew": apply_deskew,
                 "denoise": apply_denoise,
