@@ -269,18 +269,24 @@ class TextNormalizationService:
     def normalize_address(self, text: str) -> str:
         """
         Нормализация адреса регистрации.
+        ВАЖНО: НЕ применяет замены цифр, чтобы сохранить номера домов и индексы.
         
         Args:
             text: Адрес
-            
         Returns:
             str: Нормализованный адрес
         """
         if not text:
             return ""
         
-        # Базовая очистка
-        text = self.clean_ocr_text(text)
+        # Используем normalize_text БЕЗ замен цифр
+        text = self.normalize_text(
+            text,
+            replace_yo=True,
+            fix_ocr_artifacts=False,  # ОТКЛЮЧАЕМ замены цифр!
+            remove_extra_spaces=True,
+            remove_special_chars=False
+        )
         
         # Замена распространенных сокращений на стандартные
         replacements = {
@@ -298,7 +304,7 @@ class TextNormalizationService:
         # Финальная нормализация пробелов
         text = ' '.join(text.split())
         
-        return text
+        return text.strip()
     
     def calculate_cyrillic_ratio(self, text: str) -> float:
         """

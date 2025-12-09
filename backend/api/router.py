@@ -4,6 +4,8 @@ from backend.core.logger import log_info
 from backend.api.upload import router as upload_router
 from backend.api.ocr import router as ocr_router
 from backend.api.passport import router as passport_router
+from backend.api.address import router as address_router
+from backend.api.debug import router as debug_router
 
 # Создаем роутер для API v1
 router = APIRouter()
@@ -16,6 +18,12 @@ router.include_router(ocr_router)
 
 # Подключаем Passport parser роутер
 router.include_router(passport_router)
+
+# Подключаем Address parser роутер
+router.include_router(address_router)
+
+# Подключаем Debug роутер
+router.include_router(debug_router)
 
 
 @router.get("/ping")
@@ -50,7 +58,3 @@ async def health_check():
             "storage": "not_implemented"
         }
     }
-
-# Debug router
-from backend.api.debug import router as debug_router
-router.include_router(debug_router)
