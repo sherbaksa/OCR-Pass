@@ -85,3 +85,4 @@ secrets/
 !tsconfig.json
 *.key
 *.pem
+outputs/

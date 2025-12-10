@@ -70,7 +70,8 @@ class OCRAggregationService:
         self,
         image_data: Union[bytes, np.ndarray],
         language: str = "ru",
-        use_all_providers: bool = True
+        use_all_providers: bool = True,
+        skip_preprocessing: bool = False
     ) -> PassportFieldsResult:
         """
         Обработать изображение паспорта через все провайдеры.
@@ -94,20 +95,23 @@ class OCRAggregationService:
 
 # Препроцессинг изображения для улучшения качества
         image_for_ocr = image_data  # По умолчанию используем оригинал
-        try:
-            logger.info("Применение препроцессинга к изображению...")
-            preprocessed = preprocessing_service.preprocess_image(
-                image_data,
-                apply_deskew=True,
-                apply_denoise=True,
-                apply_contrast=True,
-                apply_sharpening=True,
-                apply_binarization=False
-            )
-            image_for_ocr = preprocessed
-            logger.info("Препроцессинг применён успешно")
-        except Exception as e:
-            logger.warning(f"Ошибка препроцессинга: {e}. Используем оригинальное изображение")
+        if not skip_preprocessing:
+            try:
+                logger.info("Применение встроенного препроцессинга к изображению...")
+                preprocessed = preprocessing_service.preprocess_image(
+                    image_data,
+                    apply_deskew=True,
+                    apply_denoise=True,
+                    apply_contrast=True,
+                    apply_sharpening=True,
+                    apply_binarization=False
+                )
+                image_for_ocr = preprocessed
+                logger.info("Встроенный препроцессинг применён успешно")
+            except Exception as e:
+                logger.warning(f"Ошибка препроцессинга: {e}. Используем оригинальное изображение")
+        else:
+            logger.info("Встроенный препроцессинг пропущен (используется кастомная обработка)")
 
         logger.info(
             f"Начало обработки изображения. "
