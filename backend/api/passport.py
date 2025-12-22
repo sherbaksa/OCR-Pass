@@ -1,7 +1,6 @@
-# backend/api/passport.py
 """
 API endpoint для интеллектуального парсинга паспортов РФ
-Использует OCR + интеллектуальный парсинг с нормализацией, морфологией и словарями.
+Использует OCR + парсинг МЧЗ + интеллектуальный парсинг с нормализацией, морфологией и словарями.
 """
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
@@ -10,6 +9,7 @@ import time
 
 from backend.services.ocr_aggregation_service import ocr_aggregation_service
 from backend.services.passport_parser_service import passport_parser_service
+from backend.services.passport_mrz_parser_service import passport_mrz_parser_service
 from backend.services.name_morphology_service import name_morphology_service
 from backend.core.logger import logger
 from pydantic import BaseModel, Field
@@ -35,29 +35,28 @@ class PassportParseResponse(BaseModel):
             "example": {
                 "success": True,
                 "fields": {
-                    "series": "4509",
-                    "number": "123456",
-                    "surname": "Иванов",
-                    "name": "Иван",
-                    "patronymic": "Иванович",
-                    "birth_date": "15.06.1990",
-                    "issue_date": "20.07.2010",
-                    "department_code": "770-001",
+                    "series": "0520",
+                    "number": "794472",
+                    "surname": "Шербак",
+                    "name": "Сергей",
+                    "patronymic": "Алексеевич",
+                    "birth_date": "01.01.1976",
+                    "issue_date": "14.01.2021",
+                    "department_code": "250-036",
                     "gender": "М",
-                    "birth_place": "г. Москва",
-                    "issued_by": "ОУФМС России по г. Москве",
-                    "registration_address": "г. Москва, ул. Ленина, д. 10, кв. 5"
+                    "birth_place": "С.КРЕНОВО МИХАЙЛОВСКИЙ Р-ОН ПРИМОРСКИЙ КРАЙ",
+                    "issued_by": "ПО ПРИМОРСКОМУ КРАЮ"
                 },
                 "confidences": {
-                    "series": 0.95,
-                    "number": 0.95,
-                    "surname": 0.92,
-                    "name": 0.94,
-                    "patronymic": 0.91,
-                    "birth_date": 0.85,
-                    "issue_date": 0.85,
-                    "department_code": 0.95,
-                    "gender": 0.95
+                    "series": 0.98,
+                    "number": 0.98,
+                    "surname": 0.95,
+                    "name": 0.95,
+                    "patronymic": 0.95,
+                    "birth_date": 0.98,
+                    "issue_date": 0.98,
+                    "department_code": 0.98,
+                    "gender": 0.98
                 },
                 "errors": [],
                 "warnings": [],
@@ -80,26 +79,23 @@ class PassportHealthResponse(BaseModel):
     response_model=PassportParseResponse,
     summary="Интеллектуальный парсинг паспорта РФ",
     description="""
-    Полный цикл обработки паспорта: OCR + интеллектуальный парсинг.
+    Полный цикл обработки паспорта: OCR + парсинг МЧЗ + интеллектуальный парсинг.
 
     **Процесс обработки:**
-    1. **OCR-распознавание** через несколько провайдеров (PaddleOCR, EasyOCR, Google Vision)
-    2. **Нормализация текста**: Ё→Е, исправление регистра, очистка спецсимволов
-    3. **Извлечение полей** с использованием regex-паттернов
-    4. **Морфологический анализ ФИО** через pymorphy2 + словари
-    5. **Нормализация дат** в различных форматах (DD.MM.YY, DD-MM-YYYY и т.д.)
-    6. **Валидация** извлеченных данных
-    7. **Кросс-проверки** (даты, пол из ФИО, и т.д.)
+    1. **OCR-распознавание** через PaddleOCR, EasyOCR, Google Vision
+    2. **Парсинг МЧЗ** (машиночитаемой зоны) - приоритетный источник данных
+    3. **Извлечение дополнительных полей** (место рождения, кем выдан)
+    4. **Нормализация и валидация** всех данных
 
-    **Извлекаемые поля:**
-    - Серия и номер паспорта (4 + 6 цифр)
-    - ФИО (фамилия, имя, отчество) с морфологическим анализом
-    - Даты (рождения, выдачи) с нормализацией форматов
-    - Код подразделения (XXX-XXX)
-    - Пол (М/Ж)
-    - Место рождения
-    - Орган выдачи
-    - Адрес регистрации
+    **Извлекаемые поля (первая страница):**
+    - Серия и номер паспорта (из МЧЗ)
+    - ФИО (из МЧЗ)
+    - Дата рождения (из МЧЗ)
+    - Дата выдачи (из МЧЗ)
+    - Код подразделения (из МЧЗ)
+    - Пол (из МЧЗ)
+    - Место рождения (из OCR текста)
+    - Кем выдан (из OCR текста)
 
     **Требования к файлу:**
     - Форматы: JPG, PNG, JPEG
@@ -111,6 +107,7 @@ class PassportHealthResponse(BaseModel):
     - use_all_providers: использовать все OCR провайдеры (по умолчанию true)
     - skip_preprocessing: пропустить встроенный препроцессинг (по умолчанию false)
     - include_ocr_text: включить полный OCR-текст в ответ (по умолчанию false)
+    - include_raw_ocr: включить сырые данные OCR (по умолчанию false)
     """
 )
 async def parse_passport(
@@ -195,58 +192,69 @@ async def parse_passport(
         ocr_time = (time.time() - ocr_start) * 1000
         logger.info(f"OCR завершен за {ocr_time:.2f}ms")
 
-        # Получаем raw_ocr_data из первого провайдера
+        # Получаем raw_ocr_data из PaddleOCR провайдера
         raw_ocr = None
-        if include_raw_ocr and ocr_result.provider_extractions and len(ocr_result.provider_extractions) > 0:
-            # Получаем сырые данные OCR от провайдера
+        rec_texts = []
+        
+        if ocr_result.provider_extractions and len(ocr_result.provider_extractions) > 0:
             from backend.providers import paddleocr_provider
             if paddleocr_provider._last_raw_result:
                 # Конвертируем результат в словарь
                 raw_ocr = paddleocr_provider._convert_result_to_dict(paddleocr_provider._last_raw_result)
-                logger.info(f"✓ Raw OCR data получен, ключей: {len(raw_ocr.keys()) if raw_ocr else 0}")
+                if raw_ocr:
+                    rec_texts = raw_ocr.get('rec_texts', [])
+                    logger.info(f"Получено {len(rec_texts)} распознанных текстов от PaddleOCR")
             else:
-                logger.warning("⚠ paddleocr_provider._last_raw_result пустой")
-            # Получаем все тексты от провайдеров
-        combined_text = ""
-        for provider_extraction in ocr_result.provider_extractions:
-            # Извлекаем текст из каждого провайдера
-            # Текст находится в provider_extraction, нужно получить OCR результат
-            combined_text += " "
+                logger.warning("paddleocr_provider._last_raw_result пустой")
 
-        # Временное решение: берем текст из первого провайдера
-        # TODO: улучшить объединение текстов
-        if ocr_result.provider_extractions:
-            # Нужно получить оригинальный OCR текст
-            # Пока используем заглушку
-            combined_text = "OCR текст для парсинга"
+        # Шаг 2: Парсинг МЧЗ (приоритетный источник данных)
+        logger.info("Шаг 2: Парсинг МЧЗ...")
+        mrz_start = time.time()
+        
+        mrz_result = passport_mrz_parser_service.parse_from_ocr_texts(rec_texts)
+        
+        mrz_time = (time.time() - mrz_start) * 1000
+        logger.info(f"Парсинг МЧЗ завершен за {mrz_time:.2f}ms. Извлечено полей: {len(mrz_result['fields'])}")
 
-        # Шаг 2: Интеллектуальный парсинг
-        logger.info("Шаг 2: Интеллектуальный парсинг...")
+        # Шаг 3: Извлечение дополнительных полей из OCR текста
+        logger.info("Шаг 3: Извлечение дополнительных полей...")
         parse_start = time.time()
 
-        # ВРЕМЕННОЕ РЕШЕНИЕ: используем упрощенный парсинг через field_extraction
-        # Формируем текст из всех извлеченных полей
-        all_text_parts = []
-        for field_name, value in ocr_result.final_values.items():
-            if value:
-                all_text_parts.append(f"{field_name}: {value}")
-
-        combined_ocr_text = " ".join(all_text_parts)
-
-        parsed_result = passport_parser_service.parse_passport_text(combined_ocr_text)
-
+        # Формируем полный текст из всех распознанных строк
+        combined_text = "\n".join(rec_texts) if rec_texts else ""
+        
+        # Используем стандартный парсер для извлечения дополнительных полей
+        # (место рождения, кем выдан)
+        additional_result = passport_parser_service.parse_passport_text(combined_text)
+        
         parse_time = (time.time() - parse_start) * 1000
-        logger.info(f"Парсинг завершен за {parse_time:.2f}ms")
+        logger.info(f"Извлечение дополнительных полей завершено за {parse_time:.2f}ms")
 
-        # Объединяем результаты OCR и парсера
+        # Шаг 4: Объединение результатов
         final_fields = {}
         final_confidences = {}
+        all_errors = []
+        all_warnings = []
 
-        # Сначала берем из парсера (более точные)
-        final_fields.update(parsed_result['fields'])
-        final_confidences.update(parsed_result['confidences'])
+        # Приоритет 1: Данные из МЧЗ (самая высокая точность)
+        final_fields.update(mrz_result['fields'])
+        final_confidences.update(mrz_result['confidences'])
+        all_errors.extend(mrz_result.get('errors', []))
+        all_warnings.extend(mrz_result.get('warnings', []))
 
-        # Дополняем из OCR то, чего нет в парсере
+        # Приоритет 2: Дополнительные поля из стандартного парсера
+        # (место рождения, кем выдан - их нет в МЧЗ)
+        additional_fields = ['birth_place', 'issued_by']
+        for field in additional_fields:
+            if field in additional_result['fields'] and field not in final_fields:
+                final_fields[field] = additional_result['fields'][field]
+                final_confidences[field] = additional_result['confidences'].get(field, 0.7)
+
+        # Добавляем ошибки и предупреждения из дополнительного парсинга
+        all_errors.extend(additional_result.get('errors', []))
+        all_warnings.extend(additional_result.get('warnings', []))
+
+        # Приоритет 3: Данные из OCR aggregation (если что-то осталось)
         for field_name, value in ocr_result.final_values.items():
             if field_name not in final_fields and value:
                 final_fields[field_name] = value
@@ -257,19 +265,19 @@ async def parse_passport(
         logger.info(
             f"Парсинг паспорта завершен за {total_time_ms:.2f}ms. "
             f"Извлечено полей: {len(final_fields)}, "
-            f"Ошибок: {len(parsed_result['errors'])}, "
-            f"Предупреждений: {len(parsed_result['warnings'])}"
+            f"Ошибок: {len(all_errors)}, "
+            f"Предупреждений: {len(all_warnings)}"
         )
 
         return PassportParseResponse(
             success=True,
             fields=final_fields,
             confidences=final_confidences,
-            errors=parsed_result.get('errors', []),
-            warnings=parsed_result.get('warnings', []),
-            ocr_text=combined_ocr_text if include_ocr_text else None,
-            raw_ocr_data=raw_ocr,
-            debug_image_url=None,  # TODO: добавить сохранение визуализации в MinIO
+            errors=all_errors,
+            warnings=all_warnings,
+            ocr_text=combined_text if include_ocr_text else None,
+            raw_ocr_data=raw_ocr if include_raw_ocr else None,
+            debug_image_url=None,
             processing_time_ms=total_time_ms
         )
 
