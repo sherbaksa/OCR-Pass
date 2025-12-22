@@ -1,15 +1,10 @@
 # backend/Dockerfile
-# Используем официальный Python slim образ (Debian-based -> apt)
 FROM python:3.11-slim
 
-# Устанавливаем системные зависимости
-# - build-essential, gcc, libpq-dev - для компиляции Python пакетов и PostgreSQL
-# - curl - для проверки health endpoints
-# - poppler-utils - для pdf2image (работа с PDF)
-# - libgl1 - для OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
+    g++ \
     libpq-dev \
     curl \
     poppler-utils \
@@ -20,37 +15,44 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender-dev \
     libgomp1 \
     wget \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Рабочая директория
 WORKDIR /app
 
-# Копируем файл зависимостей и устанавливаем их
-COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+# Копируем wheel файл
+COPY wheels/paddlepaddle-3.2.0-cp311-cp311-linux_x86_64.whl /tmp/
 
-# НОВОЕ: Предзагрузка моделей PaddleOCR во время сборки image
-# Это решает проблему с недоступностью китайского CDN у заказчика
+# Устанавливаем PaddlePaddle из локального файла
+RUN pip install --no-cache-dir /tmp/paddlepaddle-3.2.0-cp311-cp311-linux_x86_64.whl
+
+# Проверка
+RUN python -c "import paddle; print('PaddlePaddle version:', paddle.__version__)"
+
+# Устанавливаем PaddleOCR
+RUN pip install --no-cache-dir paddleocr
+
+# Предзагрузка моделей
 RUN python3 -c "\
 from paddleocr import PaddleOCR; \
-import numpy as np; \
 print('Downloading PaddleOCR models...'); \
-ocr = PaddleOCR(lang='ru', use_gpu=False, show_log=True); \
+ocr = PaddleOCR(lang='ru'); \
 print('PaddleOCR models downloaded successfully'); \
-img = np.ones((100, 100, 3), dtype=np.uint8) * 255; \
-result = ocr.ocr(img, cls=True); \
-print('PaddleOCR initialization test passed'); \
-" || echo "Warning: PaddleOCR model download failed, will retry at runtime"
+" || echo "Warning: PaddleOCR model download failed"
 
-# Копируем код приложения
+# Копируем requirements и код
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt || true
+
 COPY backend /app/backend
+# Копируем обученную модель
+COPY trained_model/trained_model /app/models/trained_rec_model
+
 COPY scripts /app/scripts
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Открываем порт
 EXPOSE 8000
 
-# Команда запуска
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -26,6 +26,8 @@ class PassportParseResponse(BaseModel):
     errors: list = Field(default_factory=list, description="Ошибки валидации")
     warnings: list = Field(default_factory=list, description="Предупреждения")
     ocr_text: Optional[str] = Field(None, description="Полный OCR-текст (опционально)")
+    raw_ocr_data: Optional[dict] = Field(None, description="Полные данные OCR от модели (для отладки)")
+    debug_image_url: Optional[str] = Field(None, description="URL визуализации в MinIO (для отладки)")
     processing_time_ms: float = Field(..., description="Время обработки в миллисекундах")
 
     class Config:
@@ -81,7 +83,7 @@ class PassportHealthResponse(BaseModel):
     Полный цикл обработки паспорта: OCR + интеллектуальный парсинг.
 
     **Процесс обработки:**
-    1. **OCR-распознавание** через несколько провайдеров (EasyOCR, Google Vision)
+    1. **OCR-распознавание** через несколько провайдеров (PaddleOCR, EasyOCR, Google Vision)
     2. **Нормализация текста**: Ё→Е, исправление регистра, очистка спецсимволов
     3. **Извлечение полей** с использованием regex-паттернов
     4. **Морфологический анализ ФИО** через pymorphy2 + словари
@@ -124,6 +126,10 @@ async def parse_passport(
     include_ocr_text: bool = Query(
         default=False,
         description="Включить полный OCR-текст в ответ"
+    ),
+    include_raw_ocr: bool = Query(
+        default=False,
+        description="Включить полные сырые данные OCR (для отладки)"
     )
 ) -> PassportParseResponse:
     """
@@ -134,6 +140,7 @@ async def parse_passport(
         use_all_providers: Использовать все OCR провайдеры
         skip_preprocessing: Пропустить препроцессинг
         include_ocr_text: Включить OCR-текст в ответ
+        include_raw_ocr: Включить сырые данные OCR
 
     Returns:
         PassportParseResponse: Извлеченные поля паспорта
@@ -188,7 +195,18 @@ async def parse_passport(
         ocr_time = (time.time() - ocr_start) * 1000
         logger.info(f"OCR завершен за {ocr_time:.2f}ms")
 
-        # Получаем все тексты от провайдеров
+        # Получаем raw_ocr_data из первого провайдера
+        raw_ocr = None
+        if include_raw_ocr and ocr_result.provider_extractions and len(ocr_result.provider_extractions) > 0:
+            # Получаем сырые данные OCR от провайдера
+            from backend.providers import paddleocr_provider
+            if paddleocr_provider._last_raw_result:
+                # Конвертируем результат в словарь
+                raw_ocr = paddleocr_provider._convert_result_to_dict(paddleocr_provider._last_raw_result)
+                logger.info(f"✓ Raw OCR data получен, ключей: {len(raw_ocr.keys()) if raw_ocr else 0}")
+            else:
+                logger.warning("⚠ paddleocr_provider._last_raw_result пустой")
+            # Получаем все тексты от провайдеров
         combined_text = ""
         for provider_extraction in ocr_result.provider_extractions:
             # Извлекаем текст из каждого провайдера
@@ -250,6 +268,8 @@ async def parse_passport(
             errors=parsed_result.get('errors', []),
             warnings=parsed_result.get('warnings', []),
             ocr_text=combined_ocr_text if include_ocr_text else None,
+            raw_ocr_data=raw_ocr,
+            debug_image_url=None,  # TODO: добавить сохранение визуализации в MinIO
             processing_time_ms=total_time_ms
         )
 

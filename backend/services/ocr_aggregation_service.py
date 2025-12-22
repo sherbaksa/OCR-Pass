@@ -8,7 +8,14 @@ import time
 from typing import List, Union, Optional
 import numpy as np
 
-from backend.providers import easyocr_provider, google_vision_provider
+from backend.providers import (
+    paddleocr_provider, 
+    easyocr_provider, 
+    google_vision_provider,
+    PADDLEOCR_AVAILABLE,
+    EASYOCR_AVAILABLE,
+    GOOGLE_VISION_AVAILABLE
+)
 from backend.schemas.ocr import OCRResult
 from backend.schemas.passport_fields import PassportFieldsResult, ProviderExtraction
 from backend.services.field_extraction_service import field_extraction_service
@@ -39,16 +46,32 @@ class OCRAggregationService:
 
         logger.info("Инициализация OCR Aggregation Service...")
 
-        # Инициализация EasyOCR (заменяет PaddleOCR)
-        try:
-            easyocr_provider.initialize()
-            self.providers.append(easyocr_provider)
-            logger.info("EasyOCR provider добавлен")
-        except Exception as e:
-            logger.error(f"Ошибка инициализации EasyOCR: {e}")
+        # Инициализация PaddleOCR
+        if settings.paddleocr_enabled:
+            if PADDLEOCR_AVAILABLE:
+                try:
+                    paddleocr_provider.initialize()
+                    self.providers.append(paddleocr_provider)
+                    logger.info("PaddleOCR provider добавлен")
+                except Exception as e:
+                    logger.error(f"Ошибка инициализации PaddleOCR: {e}")
+            else:
+                logger.warning("PaddleOCR включен в настройках, но модуль не установлен")
+
+        # Инициализация EasyOCR
+        if settings.easyocr_enabled:
+            if EASYOCR_AVAILABLE:
+                try:
+                    easyocr_provider.initialize()
+                    self.providers.append(easyocr_provider)
+                    logger.info("EasyOCR provider добавлен")
+                except Exception as e:
+                    logger.error(f"Ошибка инициализации EasyOCR: {e}")
+            else:
+                logger.warning("EasyOCR включен в настройках, но модуль не установлен")
 
         # Google Vision (опционально, но не в mock режиме)
-        if settings.google_vision_enabled:
+        if settings.google_vision_enabled and GOOGLE_VISION_AVAILABLE:
             try:
                 google_vision_provider.initialize()
                 # НЕ добавляем mock-провайдер в список для реальной обработки
@@ -59,6 +82,8 @@ class OCRAggregationService:
                     logger.info("Google Vision в MOCK-режиме - пропускаем для тестирования")
             except Exception as e:
                 logger.error(f"Ошибка инициализации Google Vision: {e}")
+        elif settings.google_vision_enabled and not GOOGLE_VISION_AVAILABLE:
+            logger.warning("Google Vision включен в настройках, но модуль google-cloud-vision не установлен")
 
         if not self.providers:
             raise RuntimeError("Ни один OCR провайдер не инициализирован")
@@ -96,23 +121,7 @@ class OCRAggregationService:
 
         # Препроцессинг изображения для улучшения качества
         image_for_ocr = image_data  # По умолчанию используем оригинал
-        if not skip_preprocessing:
-            try:
-                logger.info("Применение встроенного препроцессинга к изображению...")
-                preprocessed = preprocessing_service.preprocess_image(
-                    image_data,
-                    apply_deskew=True,
-                    apply_denoise=True,
-                    apply_contrast=True,
-                    apply_sharpening=True,
-                    apply_binarization=False
-                )
-                image_for_ocr = preprocessed
-                logger.info("Встроенный препроцессинг применён успешно")
-            except Exception as e:
-                logger.warning(f"Ошибка препроцессинга: {e}. Используем оригинальное изображение")
-        else:
-            logger.info("Встроенный препроцессинг пропущен (используется кастомная обработка)")
+        logger.info("Preprocessing отключен, используется оригинальное изображение")
 
         logger.info(
             f"Начало обработки изображения. "
@@ -157,51 +166,24 @@ class OCRAggregationService:
         use_all_providers: bool
     ) -> List[OCRResult]:
         """
-        Выполнить распознавание через OCR провайдеры со всеми ориентациями.
+        Выполнить распознавание через OCR провайдеры.
+        БЕЗ ручного поворота - PaddleOCR сам определяет ориентацию!
         """
-        from PIL import Image
-        import io
-
         ocr_results = []
 
         for provider in self.providers:
             try:
-                logger.info(f"Запуск распознавания через {provider.provider_name} в 4 ориентациях...")
-
-                # Пробуем все 4 ориентации
-                all_texts = []
-                for angle in [0, 90, 180, 270]:
-                    try:
-                        # Поворачиваем изображение
-                        img = Image.open(io.BytesIO(image_data))
-                        if angle > 0:
-                            img = img.rotate(-angle, expand=True)
-
-                        # Конвертируем обратно в bytes
-                        buffer = io.BytesIO()
-                        img.save(buffer, format='JPEG', quality=95)
-                        rotated_data = buffer.getvalue()
-
-                        # Распознаём
-                        result = provider.recognize(rotated_data, language)
-                        all_texts.append(result.full_text)
-
-                        logger.info(f"  Угол {angle}°: {len(result.full_text)} символов, conf {result.average_confidence:.2%}")
-
-                    except Exception as e:
-                        logger.warning(f"  Ошибка при угле {angle}°: {e}")
-                        continue
-
-                # Объединяем весь текст из всех ориентаций
-                combined_text = " ".join(all_texts)
-
-                # Создаём финальный результат с объединённым текстом
-                # Берём первый успешный результат как базу
-                final_result = provider.recognize(image_data, language)
-                final_result.full_text = combined_text
-
-                ocr_results.append(final_result)
-                logger.info(f"{provider.provider_name}: ИТОГО {len(combined_text)} символов из 4 ориентаций")
+                logger.info(f"Запуск распознавания через {provider.provider_name}...")
+            
+                # Просто вызываем распознавание БЕЗ поворота
+                # PaddleOCR имеет встроенную детекцию ориентации
+                result = provider.recognize(image_data, language)
+            
+                ocr_results.append(result)
+                logger.info(
+                    f"{provider.provider_name}: распознано {len(result.full_text)} символов, "
+                    f"conf {result.average_confidence:.2%}"
+                )
 
                 if not use_all_providers:
                     break
@@ -210,7 +192,8 @@ class OCRAggregationService:
                 logger.error(f"Ошибка в провайдере {provider.provider_name}: {e}")
                 continue
 
-        return ocr_results
+        return ocr_results 
+
 
     def _extract_fields_from_results(
         self,
