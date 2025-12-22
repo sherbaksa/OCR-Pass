@@ -26,20 +26,28 @@ class Settings(BaseSettings):
     minio_bucket_name: str = Field(default="passport-documents", description="MinIO bucket name")
     minio_secure: bool = Field(default=False, description="Использовать HTTPS для MinIO")
     
-    # Внешние API
-# Google Vision API настройки
+    # === OCR Провайдеры: флаги включения/выключения ===
+    paddleocr_enabled: bool = Field(default=True, description="Включить PaddleOCR провайдер")
+    easyocr_enabled: bool = Field(default=False, description="Включить EasyOCR провайдер")
+    
+    # Google Vision API настройки
     google_vision_enabled: bool = Field(default=False, description="Включить Google Vision API")
     google_vision_mock_mode: bool = Field(default=False, description="Использовать mock-режим (без реальных API вызовов)")
     google_application_credentials: Optional[str] = Field(
         default=None, 
         description="Путь к JSON-файлу с credentials для Google Vision"
     )
-# PaddleOCR настройки
+    
+    # PaddleOCR настройки
     paddleocr_use_gpu: bool = Field(default=False, description="Использовать GPU для PaddleOCR")
     paddleocr_lang: str = Field(default="ru", description="Язык модели PaddleOCR")
     paddleocr_det_model_dir: Optional[str] = Field(default=None, description="Путь к модели детекции")
     paddleocr_rec_model_dir: Optional[str] = Field(default=None, description="Путь к модели распознавания")
     paddleocr_cls_model_dir: Optional[str] = Field(default=None, description="Путь к модели классификации")
+    
+    # EasyOCR настройки
+    easyocr_use_gpu: bool = Field(default=False, description="Использовать GPU для EasyOCR")
+    easyocr_languages: List[str] = Field(default=["ru", "en"], description="Языки для EasyOCR")
 
     # Настройки безопасности
     secret_key: str = Field(default="change-me-in-production", description="Секретный ключ для JWT")

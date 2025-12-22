@@ -14,6 +14,7 @@ services:
       - ./logs:/app/logs
       - ./secrets:/app/secrets
       - ~/.paddleocr:/root/.paddleocr  # Монтируем модели PaddleOCR
+      - ./outputs:/mnt/user-data/outputs  # Монтируем директорию для preprocessed изображений
     environment:
       - DATABASE_URL=postgresql://user:password@postgres:5432/passport_db
       - MINIO_ENDPOINT=minio:9000
